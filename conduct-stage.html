@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>지휘로 그리는 무대 (정면 스크린)</title>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",sans-serif;color:#fff}
+canvas#stage{position:fixed;inset:0;width:100%;height:100%;display:block}
+body.full{cursor:none}
+#title{position:fixed;left:0;right:0;bottom:7vh;text-align:center;pointer-events:none;opacity:0;transition:opacity 1.2s;text-shadow:0 0 28px rgba(0,0,0,.7)}
+#title.show{opacity:1}
+#title b{display:block;font-size:clamp(30px,5vw,72px);font-weight:800}
+#title span{display:block;font-size:clamp(16px,2vw,26px);opacity:.85;margin-top:6px}
+#panel{position:fixed;inset:0;display:grid;place-items:center;background:rgba(6,6,18,.86);z-index:5;overflow:auto}
+#panel.hide{display:none}
+.box{max-width:760px;padding:28px;text-align:center}
+h1{font-size:clamp(28px,4vw,46px);margin:0 0 6px}
+p{color:#d4d6ea;line-height:1.6;margin:8px 0}
+.songs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:22px 0}
+button{font:inherit;font-size:17px;padding:14px 16px;border-radius:12px;border:1px solid #ffffff40;background:#ffffff14;color:#fff;cursor:pointer;min-height:48px}
+button:hover,button:focus-visible{background:#ffffff2e;outline:2px solid #fff8}
+button small{display:block;font-size:13px;opacity:.75;margin-top:3px}
+.row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+button.main{background:#ffd54a;color:#1d1500;border:0;font-weight:800;padding:16px 28px}
+.keys{margin-top:22px;font-size:15px;color:#c3c6dd;line-height:2}
+kbd{background:#ffffff22;border-radius:6px;padding:2px 8px;font-family:inherit;color:#fff}
+#status{position:fixed;left:14px;top:12px;font-size:14px;color:#fffd;z-index:4;background:#0008;padding:7px 11px;border-radius:8px;max-width:70vw}
+#status.hide{display:none}
+#cam{position:fixed;right:14px;top:12px;width:240px;border-radius:10px;z-index:4;display:none;opacity:.9}
+#cam.show{display:block}
+#cam.mir{transform:scaleX(-1)}
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<video id="cam" class="mir" playsinline muted></video>
+<div id="status">마우스로 움직여 보세요 · 클릭하면 박이 터집니다</div>
+<div id="title"><b></b><span></span></div>
+
+<div id="panel">
+  <div class="box">
+    <h1>지휘로 그리는 무대</h1>
+    <p>지휘자의 손 움직임을 카메라가 읽어 무대 뒤 정면 스크린의 영상을 바꿉니다.<br>손을 올리면 밝아지고, 크게 움직이면 화려해지고, 박을 내리치면 빛이 터집니다.</p>
+    <div class="row">
+      <button class="main" id="btnCam">카메라 켜기</button>
+      <button id="btnMouse">마우스로 먼저 시험</button>
+    </div>
+    <div class="songs" id="songs"></div>
+    <div class="keys">
+      <kbd>1</kbd>~<kbd>4</kbd> 곡 바꾸기 · <kbd>F</kbd> 전체화면 · <kbd>H</kbd> 안내 숨기기/보이기<br>
+      <kbd>C</kbd> 카메라 미리보기 · <kbd>M</kbd> 좌우 반전 · <kbd>B</kbd> 박 테스트 · <kbd>Esc</kbd> 이 메뉴
+    </div>
+  </div>
+</div>
+
+<script>
+{
+const songs=[
+  {name:'ABBA Gold',sub:'디스코 조명이 춤추는 무대'},
+  {name:"Gabriel's Oboe",sub:'고요한 물빛과 황금빛'},
+  {name:'소문의 낙원',sub:'꽃잎이 날리는 노을'},
+  {name:'Infinity',sub:'끝없는 우주의 빛'}
+];
+const cv=document.getElementById('stage'),ctx=cv.getContext('2d');
+const video=document.getElementById('cam'),statusEl=document.getElementById('status');
+const panel=document.getElementById('panel'),titleEl=document.getElementById('title');
+const rand=(a,b)=>a+Math.random()*(b-a);
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+let W=0,H=0,stars=[],P=[],E=0,HT=.5,SP=.3,WIND=0,t=0,scene=0;
+let lm=null,camOn=false,mirror=true,mouseMode=true,lastVT=-1,titleTimer=0;
+const inf={ph:0};
+const slots=[0,1].map(()=>({x:0,y:0,px:0,py:0,vx:0,vy:0,on:false,seen:0,armed:false,last:0,trail:[]}));
+
+function makeStars(){stars=Array.from({length:260},()=>({x:Math.random()*W,y:Math.random()*H,r:Math.random()*1.6+.3,p:Math.random()*6.28}))}
+function resize(){const d=Math.min(window.devicePixelRatio||1,2);W=innerWidth;H=innerHeight;cv.width=W*d;cv.height=H*d;ctx.setTransform(d,0,0,d,0,0);ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);makeStars();}
+
+/* ---------- 손 위치 ---------- */
+function feed(i,tx,ty){const s=slots[i];if(!s.on){s.x=s.px=tx;s.y=s.py=ty;s.trail=[]}s.on=true;s.seen=performance.now();s.x+=(tx-s.x)*.6;s.y+=(ty-s.y)*.6}
+function updHands(dt,now){
+  let sp=0,hs=0,n=0,wx=0;
+  for(const s of slots){
+    if(s.on&&!mouseMode&&now-s.seen>500)s.on=false;
+    if(!s.on){s.armed=false;continue}
+    s.vx=(s.x-s.px)/H/dt;s.vy=(s.y-s.py)/H/dt;s.px=s.x;s.py=s.y;
+    sp+=Math.hypot(s.vx,s.vy);hs+=1-s.y/H;wx+=s.vx;n++;
+    s.trail.push([s.x,s.y]);if(s.trail.length>36)s.trail.shift();
+    if(s.vy>1.0)s.armed=true;                       // 아래로 빠르게 내려가는 중
+    if(s.armed&&s.vy<.15&&now-s.last>220){s.armed=false;s.last=now;beat(s.x,s.y)} // 바닥에서 멈춤 = 박
+  }
+  E+=(clamp(sp/2.2,0,1)-E)*.06;
+  HT+=((n?hs/n:.5)-HT)*.05;
+  const a=slots[0],b=slots[1];
+  SP+=(((a.on&&b.on)?clamp(Math.hypot(a.x-b.x,a.y-b.y)/W,0,1):.3)-SP)*.05;
+  WIND+=((n?wx/n:0)-WIND)*.05;
+}
+function beat(x,y){scenes[scene].beat(x,y)}
+
+/* ---------- 입자 ---------- */
+function add(o){if(P.length<1200)P.push(Object.assign({x:0,y:0,vx:0,vy:0,life:1,age:0,size:3,hue:0,sat:100,lit:65,rot:0,vr:0,g:0,kind:'dot'},o))}
+function ring(x,y,hue,max,life,lit){add({kind:'ring',x,y,hue,size:max,life,lit})}
+function glow(x,y,r,c,a){const g=ctx.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,c.replace('A',a));g.addColorStop(1,c.replace('A',0));ctx.fillStyle=g;ctx.fillRect(x-r,y-r,r*2,r*2)}
+function drawP(dt){
+  for(let i=P.length-1;i>=0;i--){
+    const p=P[i];p.age+=dt;if(p.age>p.life){P.splice(i,1);continue}
+    const k=p.age/p.life,a=Math.min(1,(1-k)*2);
+    if(p.pull){for(const s of slots){if(!s.on)continue;const dx=s.x-p.x,dy=s.y-p.y,d=Math.hypot(dx,dy)+1;if(d<p.reach){const sw=p.swirl||0;p.vx+=(dx/d*p.pull-dy/d*sw)*dt;p.vy+=(dy/d*p.pull+dx/d*sw)*dt}}}
+    p.vy+=p.g*dt;if(p.wind)p.vx+=p.wind*WIND*dt;
+    if(p.drag){p.vx*=1-p.drag*dt;p.vy*=1-p.drag*dt}
+    p.x+=p.vx*dt;p.y+=p.vy*dt;p.rot+=p.vr*dt;
+    const col=`hsla(${p.hue},${p.sat}%,${p.lit}%,${a})`;
+    ctx.globalCompositeOperation=(p.kind==='petal'||p.kind==='conf')?'source-over':'lighter';
+    if(p.kind==='ring'){ctx.strokeStyle=`hsla(${p.hue},90%,${p.lit}%,${(1-k)*.8})`;ctx.lineWidth=2+5*(1-k);ctx.beginPath();ctx.arc(p.x,p.y,p.size*Math.sqrt(k)+4,0,6.283);ctx.stroke()}
+    else if(p.kind==='conf'){ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.rot);ctx.fillStyle=col;ctx.fillRect(-p.size,-p.size*.4,p.size*2,p.size*.8);ctx.restore()}
+    else if(p.kind==='streak'){ctx.strokeStyle=col;ctx.lineWidth=p.size;ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x-p.vx*.06,p.y-p.vy*.06);ctx.stroke()}
+    else if(p.kind==='petal'){ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.rot);ctx.scale(1,.55+.45*Math.sin(p.age*3+p.hue));ctx.fillStyle=col;ctx.beginPath();ctx.ellipse(0,0,p.size,p.size*.6,0,0,6.283);ctx.fill();ctx.restore()}
+    else{ctx.fillStyle=col;ctx.beginPath();ctx.arc(p.x,p.y,p.size*(p.shrink?1-k:1)+.3,0,6.283);ctx.fill()}
+  }
+  ctx.globalCompositeOperation='source-over';
+}
+
+/* ---------- 곡별 장면 ---------- */
+const scenes=[
+{ // 1. ABBA Gold — 디스코
+  bg(){
+    ctx.fillStyle='rgba(12,4,28,.3)';ctx.fillRect(0,0,W,H);
+    ctx.globalCompositeOperation='lighter';
+    const n=6,sp=.4+E*2.2;
+    for(let i=0;i<n;i++){
+      const ox=W*(i+.5)/n,ang=Math.sin(t*sp+i*1.3)*.7,len=H*1.3,hw=60+E*110,hue=(t*50+i*60)%360;
+      const ex=ox+Math.sin(ang)*len,ey=Math.cos(ang)*len;
+      const g=ctx.createLinearGradient(ox,0,ex,ey);
+      g.addColorStop(0,`hsla(${hue},100%,65%,${.16+E*.3+HT*.1})`);g.addColorStop(1,`hsla(${hue},100%,60%,0)`);
+      ctx.fillStyle=g;ctx.beginPath();ctx.moveTo(ox-8,0);ctx.lineTo(ex-hw*Math.cos(ang),ey+hw*Math.sin(ang));ctx.lineTo(ex+hw*Math.cos(ang),ey-hw*Math.sin(ang));ctx.lineTo(ox+8,0);ctx.fill();
+    }
+    const bx=W/2,by=H*.1,br=Math.min(W,H)*.055;
+    glow(bx,by,br*4,'hsla(0,0%,100%,A)',.12+E*.3);
+    ctx.globalCompositeOperation='source-over';
+    ctx.fillStyle='#c9c9d6';ctx.beginPath();ctx.arc(bx,by,br,0,6.283);ctx.fill();
+    for(let i=0;i<10;i++){ctx.fillStyle=`hsla(${(i*36+t*90)%360},100%,85%,${.3+.7*Math.abs(Math.sin(t*3+i))})`;ctx.fillRect(bx+Math.cos(i*2.4)*br*.7-2,by+Math.sin(i*1.7)*br*.7-2,4,4)}
+    for(const s of slots){if(!s.on)continue;const k=1+E*7;
+      for(let i=0;i<k;i++)add({x:s.x,y:s.y,vx:rand(-60,60)+s.vx*H*.2,vy:rand(-60,60)+s.vy*H*.2,life:rand(.6,1.4),size:rand(1,3),hue:rand(0,360),shrink:1,drag:1.5})}
+  },
+  beat(x,y){ring(x,y,rand(0,360),Math.min(W,H)*.5,.9,65);
+    for(let i=0;i<50;i++){const a=rand(0,6.28),v=rand(150,550);add({kind:'conf',x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v-100,g:420,drag:1.2,life:rand(1,2),size:rand(3,6),hue:rand(0,360),vr:rand(-8,8),lit:60})}}
+},
+{ // 2. Gabriel's Oboe — 물빛과 황금빛
+  bg(){
+    ctx.fillStyle='rgba(3,16,22,.25)';ctx.fillRect(0,0,W,H);
+    const n=3+E*8;
+    for(let i=0;i<n;i++)add({kind:'streak',x:rand(0,W),y:-20,vx:rand(-10,10),vy:rand(260,520),life:H/280,size:rand(.6,1.8),hue:rand(180,200),sat:60,lit:rand(60,85)});
+    ctx.globalCompositeOperation='lighter';
+    glow(W*.5,H*1.05,W*.6,'hsla(185,60%,60%,A)',.05+E*.08);
+    for(const s of slots){if(!s.on)continue;
+      glow(s.x,s.y,90+E*200,'hsla(43,100%,65%,A)',.15+HT*.45);
+      if(Math.random()<.6+E)add({x:s.x+rand(-30,30),y:s.y+rand(-30,30),vx:rand(-20,20),vy:rand(-50,-15),life:rand(1.5,3),size:rand(1,2.5),hue:45,lit:70,shrink:1})}
+    ctx.globalCompositeOperation='source-over';
+  },
+  beat(x,y){ring(x,y,45,Math.min(W,H)*.35,1.8,70);ring(x,y,185,Math.min(W,H)*.22,1.4,70)}
+},
+{ // 3. 소문의 낙원 — 노을과 꽃잎
+  bg(){
+    const h=HT,g=ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,`hsla(${265-h*40},55%,${14+h*22}%,.35)`);
+    g.addColorStop(.65,`hsla(${330+h*10},60%,${35+h*20}%,.35)`);
+    g.addColorStop(1,`hsla(${25+h*15},90%,${50+h*10}%,.35)`);
+    ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+    ctx.globalCompositeOperation='lighter';
+    glow(W*.5,H*(.85-h*.35),Math.min(W,H)*.35,'hsla(35,100%,70%,A)',.2+h*.3);
+    ctx.globalCompositeOperation='source-over';
+    if(Math.random()<.5+E*1.5)add({kind:'petal',x:rand(-50,W),y:H+20,vx:rand(10,40),vy:rand(-70,-30),life:rand(8,12),size:rand(5,10),hue:rand(330,360),sat:70,lit:rand(80,92),vr:rand(-1.5,1.5),wind:120,pull:40,swirl:90,reach:260,drag:.15});
+  },
+  beat(x,y){ring(x,y,40,Math.min(W,H)*.3,1.2,75);
+    for(let i=0;i<28;i++){const a=rand(0,6.28),v=rand(80,260);add({kind:'petal',x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,life:rand(3,5),size:rand(5,11),hue:rand(330,360),sat:70,lit:rand(80,92),vr:rand(-3,3),drag:.8,wind:120})}}
+},
+{ // 4. Infinity — 우주와 ∞
+  bg(dt){
+    ctx.fillStyle='rgba(1,2,12,.2)';ctx.fillRect(0,0,W,H);
+    ctx.globalCompositeOperation='lighter';
+    for(const s of stars){ctx.fillStyle=`hsla(220,60%,90%,${.25+.5*Math.abs(Math.sin(t*.8+s.p))})`;ctx.fillRect(s.x,s.y,s.r,s.r)}
+    inf.ph+=dt*(.25+E*1.6);
+    const sc=Math.min(W*.42,H*.7)*(.6+SP*.8),cx=W/2,cy=H/2;
+    for(let i=0;i<70;i++){const u=inf.ph+i*.035,d=1+Math.sin(u)**2;
+      ctx.fillStyle=`hsla(${200+i*1.2+E*60},90%,${55+i*.3}%,${i/70})`;ctx.beginPath();
+      ctx.arc(cx+sc*Math.cos(u)/d,cy+sc*Math.sin(u)*Math.cos(u)/d,1+i/70*3*(1+E),0,6.283);ctx.fill()}
+    ctx.lineCap='round';
+    for(const s of slots){if(!s.on||s.trail.length<2)continue;
+      for(let j=1;j<s.trail.length;j++){const k=j/s.trail.length;ctx.strokeStyle=`hsla(${190+k*90},100%,70%,${k*.8})`;ctx.lineWidth=1+k*(6+E*10);ctx.beginPath();ctx.moveTo(s.trail[j-1][0],s.trail[j-1][1]);ctx.lineTo(s.trail[j][0],s.trail[j][1]);ctx.stroke()}}
+    ctx.globalCompositeOperation='source-over';
+  },
+  beat(x,y){ring(x,y,210,Math.min(W,H)*.45,1.1,75);
+    for(let i=0;i<60;i++){const a=rand(0,6.28),v=rand(100,500);add({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,drag:1.6,life:rand(.8,1.8),size:rand(1,2.8),hue:rand(190,280),lit:75,shrink:1})}}
+}
+];
+
+// 공연 순서에 맞춤: 1 ABBA Gold, 2 Gabriel's Oboe, 3 Infinity, 4 소문의 낙원
+[songs[2],songs[3]]=[songs[3],songs[2]];[scenes[2],scenes[3]]=[scenes[3],scenes[2]];
+function setScene(i){scene=i;P=[];ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);
+  titleEl.querySelector('b').textContent=songs[i].name;titleEl.querySelector('span').textContent=songs[i].sub;
+  titleEl.classList.add('show');clearTimeout(titleTimer);titleTimer=setTimeout(()=>titleEl.classList.remove('show'),3500)}
+
+/* ---------- 카메라 + 손 인식 ---------- */
+async function startCam(){
+  panel.classList.add('hide');setStatus('카메라와 손 인식 준비 중… (인터넷 필요)');
+  try{
+    const v='0.10.14',base=`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${v}`;
+    const m=await import(base);
+    const fs=await m.FilesetResolver.forVisionTasks(base+'/wasm');
+    const opt=d=>({baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',delegate:d},runningMode:'VIDEO',numHands:2});
+    try{lm=await m.HandLandmarker.createFromOptions(fs,opt('GPU'))}catch(e){lm=await m.HandLandmarker.createFromOptions(fs,opt('CPU'))}
+    const st=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720}},audio:false});
+    video.srcObject=st;await video.play();
+    camOn=true;mouseMode=false;slots.forEach(s=>s.on=false);
+    setStatus('카메라 켜짐 · 손을 움직여 보세요 (H: 안내 숨기기)');
+  }catch(e){console.error(e);setStatus('카메라를 켜지 못했어요: '+(e.name||e.message)+' · 마우스로는 시험할 수 있어요')}
+}
+function detect(now){
+  if(!camOn||!lm||video.readyState<2||video.currentTime===lastVT)return;
+  lastVT=video.currentTime;
+  const r=lm.detectForVideo(video,now);
+  const pts=(r.landmarks||[]).map(L=>{const p=L[9];return[(mirror?1-p.x:p.x)*W,p.y*H]});
+  const a=slots[0],b=slots[1],dist=(s,p)=>Math.hypot(s.x-p[0],s.y-p[1]);
+  if(pts.length===2){
+    if(a.on&&b.on&&dist(a,pts[1])+dist(b,pts[0])<dist(a,pts[0])+dist(b,pts[1]))pts.reverse();
+    else if(!(a.on&&b.on))pts.sort((p,q)=>p[0]-q[0]);
+    feed(0,pts[0][0],pts[0][1]);feed(1,pts[1][0],pts[1][1]);
+  }else if(pts.length===1){
+    const i=(b.on&&(!a.on||dist(b,pts[0])<dist(a,pts[0])))?1:0;feed(i,pts[0][0],pts[0][1]);
+  }
+}
+
+/* ---------- 조작 ---------- */
+document.getElementById('songs').innerHTML=songs.map((s,i)=>`<button data-i="${i}">${i+1}. ${s.name}<small>${s.sub}</small></button>`).join('');
+document.getElementById('songs').addEventListener('click',e=>{const bt=e.target.closest('button');if(!bt)return;setScene(+bt.dataset.i);panel.classList.add('hide')});
+document.getElementById('btnCam').addEventListener('click',startCam);
+document.getElementById('btnMouse').addEventListener('click',()=>{panel.classList.add('hide');setScene(scene)});
+cv.addEventListener('pointermove',e=>{if(mouseMode)feed(0,e.clientX,e.clientY)});
+cv.addEventListener('pointerdown',e=>{if(mouseMode)beat(e.clientX,e.clientY)});
+addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();
+  if(k>='1'&&k<='4'){setScene(+k-1);panel.classList.add('hide')}
+  else if(k==='f'){if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen().catch(()=>{})}
+  else if(k==='h')statusEl.classList.toggle('hide');
+  else if(k==='c')video.classList.toggle('show');
+  else if(k==='m'){mirror=!mirror;video.classList.toggle('mir',mirror);setStatus(mirror?'좌우 반전: 켬 (관객이 보는 방향)':'좌우 반전: 끔')}
+  else if(k==='b')beat(W/2,H/2);
+  else if(k==='escape')panel.classList.toggle('hide');
+});
+document.addEventListener('fullscreenchange',()=>document.body.classList.toggle('full',!!document.fullscreenElement));
+addEventListener('resize',resize);
+
+let lastT=performance.now();
+function frame(now){const dt=Math.min(.05,Math.max(.001,(now-lastT)/1000));lastT=now;t+=dt;
+  detect(now);updHands(dt,now);scenes[scene].bg(dt);drawP(dt);requestAnimationFrame(frame)}
+resize();requestAnimationFrame(frame);
+}
+</script>
+</body>
+</html>
