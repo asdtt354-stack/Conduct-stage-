@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>지휘로 그리는 무대 (정면 스크린)</title>
+<title>지휘와 연주로 그리는 무대</title>
 <style>
 html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",sans-serif;color:#fff}
 canvas#stage{position:fixed;inset:0;width:100%;height:100%;display:block}
@@ -30,29 +30,31 @@ kbd{background:#ffffff22;border-radius:6px;padding:2px 8px;font-family:inherit;c
 #cam{position:fixed;right:14px;top:12px;width:240px;border-radius:10px;z-index:4;display:none;opacity:.9}
 #cam.show{display:block}
 #cam.mir{transform:scaleX(-1)}
+#meter{position:fixed;left:14px;top:52px;width:180px;height:10px;border-radius:5px;background:#ffffff22;z-index:4;overflow:hidden;display:none}
+#meter.show{display:block}#meter i{display:block;height:100%;width:0;background:linear-gradient(90deg,#4fd1c5,#ffd54a,#ff7a59)}
+button.mic{background:#4fd1c5;color:#022;border:0;font-weight:800;padding:16px 28px}
 </style>
 </head>
 <body>
 <canvas id="stage"></canvas>
 <video id="cam" class="mir" playsinline muted></video>
-<input type="file" id="imgIn" accept="image/*" multiple hidden>
 <div id="status">마우스로 움직여 보세요 · 클릭하면 박이 터집니다</div>
+<div id="meter"><i></i></div>
 <div id="title"><b></b><span></span></div>
 
 <div id="panel">
   <div class="box">
-    <h1>지휘로 그리는 무대</h1>
-    <p>지휘자의 손 움직임을 카메라가 읽어 무대 뒤 정면 스크린의 영상을 바꿉니다.<br>손을 올리면 밝아지고, 크게 움직이면 화려해지고, 박을 내리치면 빛이 터집니다.</p>
+    <h1>지휘와 연주로 그리는 무대</h1>
+    <p>지휘자의 손 움직임을 카메라가 읽어 무대 뒤 정면 스크린의 영상을 바꿉니다.<br>손을 올리면 밝아지고, 크게 움직이면 화려해지고, 박을 내리치면 빛이 터집니다.<br>마이크를 켜면 <b>실시간 연주 소리</b>에도 반응합니다. 소리가 커지면 화면이 살아나고, 낮은 소리는 아래에서, 높은 소리는 위에서 빛납니다.</p>
     <div class="row">
       <button class="main" id="btnCam">카메라 켜기</button>
+      <button class="mic" id="btnMic">마이크 켜기</button>
       <button id="btnMouse">마우스로 먼저 시험</button>
     </div>
-    <p>배경 이미지: 이 파일 옆 <b>images</b> 폴더에 <b>1-1.jpg, 1-2.jpg</b>(1번 곡), <b>2-1.jpg</b>(2번 곡)처럼 넣으면 자동으로 불러옵니다.</p>
     <div class="songs" id="songs"></div>
     <div class="keys">
       <kbd>1</kbd>~<kbd>4</kbd> 곡 바꾸기 · <kbd>F</kbd> 전체화면 · <kbd>H</kbd> 안내 숨기기/보이기<br>
-      <kbd>C</kbd> 카메라 미리보기 · <kbd>M</kbd> 좌우 반전 · <kbd>B</kbd> 박 테스트 · <kbd>Esc</kbd> 이 메뉴<br>
-      <kbd>I</kbd> 지금 곡에 이미지 추가 (이미지를 화면에 끌어다 놓아도 됨)
+      <kbd>C</kbd> 카메라 미리보기 · <kbd>M</kbd> 좌우 반전 · <kbd>B</kbd> 박 테스트 · <kbd>Esc</kbd> 이 메뉴<br><kbd>A</kbd> 마이크 켜기 · <kbd>K</kbd> 소리 기준 맞추기(10초) · <kbd>P</kbd> 소리 반응 멈춤/다시 · <kbd>I</kbd> 배경 이미지 끄기/켜기 · <kbd>[</kbd> <kbd>]</kbd> 이 곡 이미지 어둡게/밝게
     </div>
   </div>
 </div>
@@ -69,6 +71,7 @@ const cv=document.getElementById('stage'),ctx=cv.getContext('2d');
 const video=document.getElementById('cam'),statusEl=document.getElementById('status');
 const panel=document.getElementById('panel'),titleEl=document.getElementById('title');
 const rand=(a,b)=>a+Math.random()*(b-a);
+function setStatus(m){statusEl.textContent=m}
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 let W=0,H=0,stars=[],P=[],E=0,HT=.5,SP=.3,WIND=0,t=0,scene=0;
 let lm=null,camOn=false,mirror=true,mouseMode=true,lastVT=-1,titleTimer=0;
@@ -77,8 +80,6 @@ const slots=[0,1].map(()=>({x:0,y:0,px:0,py:0,vx:0,vy:0,on:false,seen:0,armed:fa
 
 function makeStars(){stars=Array.from({length:260},()=>({x:Math.random()*W,y:Math.random()*H,r:Math.random()*1.6+.3,p:Math.random()*6.28}))}
 function resize(){const d=Math.min(window.devicePixelRatio||1,2);W=innerWidth;H=innerHeight;cv.width=W*d;cv.height=H*d;ctx.setTransform(d,0,0,d,0,0);ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);makeStars();}
-
-function setStatus(s){statusEl.textContent=s}
 
 /* ---------- 손 위치 ---------- */
 function feed(i,tx,ty){const s=slots[i];if(!s.on){s.x=s.px=tx;s.y=s.py=ty;s.trail=[]}s.on=true;s.seen=performance.now();s.x+=(tx-s.x)*.6;s.y+=(ty-s.y)*.6}
@@ -93,13 +94,13 @@ function updHands(dt,now){
     if(s.vy>1.0)s.armed=true;                       // 아래로 빠르게 내려가는 중
     if(s.armed&&s.vy<.15&&now-s.last>220){s.armed=false;s.last=now;beat(s.x,s.y)} // 바닥에서 멈춤 = 박
   }
-  E+=(clamp(sp/2.2,0,1)-E)*.06;
-  HT+=((n?hs/n:.5)-HT)*.05;
+  E+=(Math.max(clamp(sp/2.2,0,1),LV*.9)-E)*.06;
+  HT+=(clamp((n?hs/n:.5)+LV*.35,0,1)-HT)*.05;
   const a=slots[0],b=slots[1];
   SP+=(((a.on&&b.on)?clamp(Math.hypot(a.x-b.x,a.y-b.y)/W,0,1):.3)-SP)*.05;
   WIND+=((n?wx/n:0)-WIND)*.05;
 }
-function beat(x,y){imgFlash=1;scenes[scene].beat(x,y)}
+function beat(x,y){scenes[scene].beat(x,y)}
 
 /* ---------- 입자 ---------- */
 function add(o){if(P.length<1200)P.push(Object.assign({x:0,y:0,vx:0,vy:0,life:1,age:0,size:3,hue:0,sat:100,lit:65,rot:0,vr:0,g:0,kind:'dot'},o))}
@@ -127,8 +128,8 @@ function drawP(dt){
 /* ---------- 곡별 장면 ---------- */
 const scenes=[
 { // 1. ABBA Gold — 디스코
-  bg(dt,hi){
-    if(!hi){ctx.fillStyle='rgba(12,4,28,.3)';ctx.fillRect(0,0,W,H);}
+  bg(){
+    ctx.fillStyle='rgba(12,4,28,.3)';ctx.fillRect(0,0,W,H);
     ctx.globalCompositeOperation='lighter';
     const n=6,sp=.4+E*2.2;
     for(let i=0;i<n;i++){
@@ -150,8 +151,8 @@ const scenes=[
     for(let i=0;i<50;i++){const a=rand(0,6.28),v=rand(150,550);add({kind:'conf',x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v-100,g:420,drag:1.2,life:rand(1,2),size:rand(3,6),hue:rand(0,360),vr:rand(-8,8),lit:60})}}
 },
 { // 2. Gabriel's Oboe — 물빛과 황금빛
-  bg(dt,hi){
-    if(!hi){ctx.fillStyle='rgba(3,16,22,.25)';ctx.fillRect(0,0,W,H);}
+  bg(){
+    ctx.fillStyle='rgba(3,16,22,.25)';ctx.fillRect(0,0,W,H);
     const n=3+E*8;
     for(let i=0;i<n;i++)add({kind:'streak',x:rand(0,W),y:-20,vx:rand(-10,10),vy:rand(260,520),life:H/280,size:rand(.6,1.8),hue:rand(180,200),sat:60,lit:rand(60,85)});
     ctx.globalCompositeOperation='lighter';
@@ -164,12 +165,12 @@ const scenes=[
   beat(x,y){ring(x,y,45,Math.min(W,H)*.35,1.8,70);ring(x,y,185,Math.min(W,H)*.22,1.4,70)}
 },
 { // 3. 소문의 낙원 — 노을과 꽃잎
-  bg(dt,hi){
-    const h=HT;if(!hi){const g=ctx.createLinearGradient(0,0,0,H);
-    g.addColorStop(0,`hsla(${265-h*40},55%,${14+h*22}%,.35)`);
-    g.addColorStop(.65,`hsla(${330+h*10},60%,${35+h*20}%,.35)`);
-    g.addColorStop(1,`hsla(${25+h*15},90%,${50+h*10}%,.35)`);
-    ctx.fillStyle=g;ctx.fillRect(0,0,W,H);}
+  bg(){
+    const h=HT,g=ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,`hsla(${265-h*40},55%,${14+h*22}%,${GA()})`);
+    g.addColorStop(.65,`hsla(${330+h*10},60%,${35+h*20}%,${GA()})`);
+    g.addColorStop(1,`hsla(${25+h*15},90%,${50+h*10}%,${GA()})`);
+    ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
     ctx.globalCompositeOperation='lighter';
     glow(W*.5,H*(.85-h*.35),Math.min(W,H)*.35,'hsla(35,100%,70%,A)',.2+h*.3);
     ctx.globalCompositeOperation='source-over';
@@ -179,8 +180,8 @@ const scenes=[
     for(let i=0;i<28;i++){const a=rand(0,6.28),v=rand(80,260);add({kind:'petal',x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,life:rand(3,5),size:rand(5,11),hue:rand(330,360),sat:70,lit:rand(80,92),vr:rand(-3,3),drag:.8,wind:120})}}
 },
 { // 4. Infinity — 우주와 ∞
-  bg(dt,hi){
-    if(!hi){ctx.fillStyle='rgba(1,2,12,.2)';ctx.fillRect(0,0,W,H);}
+  bg(dt){
+    ctx.fillStyle='rgba(1,2,12,.2)';ctx.fillRect(0,0,W,H);
     ctx.globalCompositeOperation='lighter';
     for(const s of stars){ctx.fillStyle=`hsla(220,60%,90%,${.25+.5*Math.abs(Math.sin(t*.8+s.p))})`;ctx.fillRect(s.x,s.y,s.r,s.r)}
     inf.ph+=dt*(.25+E*1.6);
@@ -200,7 +201,7 @@ const scenes=[
 
 // 공연 순서에 맞춤: 1 ABBA Gold, 2 Gabriel's Oboe, 3 Infinity, 4 소문의 낙원
 [songs[2],songs[3]]=[songs[3],songs[2]];[scenes[2],scenes[3]]=[scenes[3],scenes[2]];
-function setScene(i){scene=i;P=[];imgState.t=0;ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);
+function setScene(i){scene=i;P=[];imgIdx=0;imgT=0;imgFade=1;ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);
   titleEl.querySelector('b').textContent=songs[i].name;titleEl.querySelector('span').textContent=songs[i].sub;
   titleEl.classList.add('show');clearTimeout(titleTimer);titleTimer=setTimeout(()=>titleEl.classList.remove('show'),3500)}
 
@@ -234,31 +235,6 @@ function detect(now){
   }
 }
 
-
-/* ---------- 배경 이미지 ---------- */
-const IM=[[],[],[],[]],EXT=['jpg','jpeg','png','webp'],imgState={t:0};let imgFlash=0;
-const imgIn=document.getElementById('imgIn');
-function tryLoad(n,k,e=0){if(e>=EXT.length)return;const im=new Image();im.onload=()=>{IM[n][k]=im};im.onerror=()=>tryLoad(n,k,e+1);im.src=`images/${n+1}-${k}.${EXT[e]}`}
-for(let n=0;n<4;n++)for(let k=1;k<=8;k++)tryLoad(n,k);
-setTimeout(()=>{const c=IM.map(a=>a.filter(Boolean).length);if(c.some(x=>x))setStatus('불러온 배경 이미지: '+c.map((x,i)=>`${i+1}번 곡 ${x}장`).join(' · '))},1500);
-function addFiles(files){let n=0;for(const f of files){if(!f.type.startsWith('image/'))continue;const im=new Image();im.onload=()=>IM[scene].push(im);im.src=URL.createObjectURL(f);n++}
-  if(n)setStatus(`${songs[scene].name}에 이미지 ${n}장 추가 (새로고침하면 사라짐 · 계속 쓰려면 images 폴더에 넣기)`)}
-imgIn.addEventListener('change',()=>{addFiles(imgIn.files);imgIn.value=''});
-addEventListener('dragover',e=>e.preventDefault());
-addEventListener('drop',e=>{e.preventDefault();addFiles(e.dataTransfer.files)});
-function drawImg(dt){
-  const L=IM[scene].filter(Boolean);if(!L.length)return false;
-  imgState.t+=dt;const per=12,fade=2.5,T=imgState.t;
-  const i=Math.floor(T/per)%L.length,f=T%per;
-  const draw=(img,alpha,ph)=>{const z=1.1+.05*Math.sin(t*.12+ph);const r=Math.max(W/img.width,H/img.height)*z;const w=img.width*r,h=img.height*r;
-    ctx.globalAlpha=alpha;ctx.drawImage(img,(W-w)/2+Math.sin(t*.07+ph)*W*.015,(H-h)/2+Math.cos(t*.05+ph)*H*.01,w,h);ctx.globalAlpha=1};
-  ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);
-  if(L.length>1&&T>=per&&f<fade){draw(L[(i-1+L.length)%L.length],1,i-1);draw(L[i],f/fade,i)}else draw(L[i],1,i);
-  imgFlash=Math.max(0,imgFlash-dt*2.5);
-  // 손을 올리거나 크게 지휘하면 밝아지고, 박마다 잠깐 환해짐
-  ctx.fillStyle=`rgba(0,0,0,${clamp(.62-HT*.4-E*.12-imgFlash*.25,.08,.8)})`;ctx.fillRect(0,0,W,H);
-  return true;
-}
 /* ---------- 조작 ---------- */
 document.getElementById('songs').innerHTML=songs.map((s,i)=>`<button data-i="${i}">${i+1}. ${s.name}<small>${s.sub}</small></button>`).join('');
 document.getElementById('songs').addEventListener('click',e=>{const bt=e.target.closest('button');if(!bt)return;setScene(+bt.dataset.i);panel.classList.add('hide')});
@@ -274,15 +250,77 @@ addEventListener('keydown',e=>{
   else if(k==='c')video.classList.toggle('show');
   else if(k==='m'){mirror=!mirror;video.classList.toggle('mir',mirror);setStatus(mirror?'좌우 반전: 켬 (관객이 보는 방향)':'좌우 반전: 끔')}
   else if(k==='b')beat(W/2,H/2);
-  else if(k==='i')imgIn.click();
+  else if(k==='a'){if(!micOn)startMic()}
+  else if(k==='k'){if(micOn){calib=10;cMin=1;cMax=0}else setStatus('먼저 A로 마이크를 켜 주세요')}
+  else if(k==='p'){micPause=!micPause;setStatus(micPause?'소리 반응 멈춤 (박수 시간) · P로 다시 켜기':'소리 반응 다시 켬')}
+  else if(k==='['||k===']'){IMGPOW[scene]=Math.round(clamp(IMGPOW[scene]+(k===']'?.4:-.4),.4,6)*10)/10;try{localStorage.setItem('imgpow',JSON.stringify(IMGPOW))}catch(e){}setStatus(`이 곡 이미지 밝기: ${IMGPOW[scene]} ( [ 어둡게 · ] 밝게 )`)}
+  else if(k==='i'){imgOn=!imgOn;setStatus(imgOn?'배경 이미지 켬':'배경 이미지 끔')}
   else if(k==='escape')panel.classList.toggle('hide');
 });
 document.addEventListener('fullscreenchange',()=>document.body.classList.toggle('full',!!document.fullscreenElement));
 addEventListener('resize',resize);
 
+/* ---------- 배경 이미지 (images/1-1.jpg …) ---------- */
+const IMGS=[[],[],[],[]];let imgOn=true,imgIdx=0,imgT=0,imgFade=1;
+let IMGPOW=[1.2,1.9,1.5,2];try{const v=JSON.parse(localStorage.getItem('imgpow'));if(Array.isArray(v)&&v.length===4)IMGPOW=v}catch(e){}
+for(let si=0;si<4;si++)for(let k=1;k<=3;k++){
+  const tryExt=(exts)=>{if(!exts.length)return;const im=new Image();im.onload=()=>{IMGS[si].push(im)};im.onerror=()=>tryExt(exts.slice(1));im.src=`images/${si+1}-${k}.${exts[0]}`};
+  tryExt(['jpg','png','jpeg','webp']);
+}
+function GA(){return IMGS[scene].length&&imgOn?(.35/Math.max(1,IMGPOW[scene])).toFixed(3):.35}
+function drawImg(dt){
+  const L=IMGS[scene];if(!imgOn||!L.length)return;
+  imgT+=dt;if(imgT>22){imgT=0;imgIdx++;imgFade=0}
+  imgFade=Math.min(1,imgFade+dt*.5);
+  const im=L[imgIdx%L.length],z=1.06+.06*Math.sin(t*.05)+LV*.04;
+  const sc=Math.max(W/im.naturalWidth,H/im.naturalHeight)*z,iw=im.naturalWidth*sc,ih=im.naturalHeight*sc;
+  const ox=(W-iw)/2+Math.sin(t*.03)*W*.02+WIND*20,oy=(H-ih)/2;
+  ctx.globalAlpha=Math.min(1,(.07+HT*.06+LV*.12)*IMGPOW[scene])*imgFade;ctx.drawImage(im,ox,oy,iw,ih);ctx.globalAlpha=1;
+}
+
+/* ---------- 마이크 (실시간 연주) ---------- */
+let an=null,buf=null,fbuf=null,micOn=false,micPause=false,LV=0,LO=0,HI=0,lvAvg=0,lastOn=0;
+let floor=.004,peak=.12,calib=0,cMin=1,cMax=0;
+const meter=document.getElementById('meter'),meterBar=meter.firstElementChild;
+async function startMic(){
+  try{
+    const st=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+    const ac=new (window.AudioContext||window.webkitAudioContext)();await ac.resume();
+    an=ac.createAnalyser();an.fftSize=2048;an.smoothingTimeConstant=.6;ac.createMediaStreamSource(st).connect(an);
+    buf=new Float32Array(an.fftSize);fbuf=new Uint8Array(an.frequencyBinCount);micOn=true;meter.classList.add('show');
+    panel.classList.add('hide');setStatus('마이크 켜짐 · 리허설 때 K를 눌러 소리 기준을 맞춰 주세요');
+  }catch(e){setStatus('마이크를 켜지 못했어요: '+(e.name||e.message)+' · 주소창에서 마이크 권한을 허용해 주세요')}
+}
+function listen(dt,now){
+  if(!micOn||!an){LV*=.95;LO*=.95;HI*=.95;return}
+  an.getFloatTimeDomainData(buf);let q=0;for(const v of buf)q+=v*v;const rms=Math.sqrt(q/buf.length);
+  an.getByteFrequencyData(fbuf);const hz=an.context.sampleRate/an.fftSize;let lo=0,hi=0,nl=0,nh=0;
+  for(let i=1;i<fbuf.length;i++){const f=i*hz;if(f<250){lo+=fbuf[i];nl++}else if(f>2000&&f<8000){hi+=fbuf[i];nh++}}
+  lo=lo/nl/255;hi=hi/nh/255;
+  if(calib>0){calib-=dt;cMin=Math.min(cMin,rms);cMax=Math.max(cMax,rms);
+    setStatus(`소리 기준 맞추는 중… ${Math.ceil(calib)}초 · 가장 작은 소리와 가장 큰 소리를 연주해 주세요`);
+    if(calib<=0){floor=Math.max(.001,cMin*1.2);peak=Math.max(floor*3,cMax*.9);setStatus('소리 기준을 맞췄어요 · 이제 연주에 맞춰 반응해요')}}
+  else{peak=Math.max(peak*.9995,rms,floor*3)} // 큰 소리를 만나면 기준이 따라 올라감
+  const lv=micPause?0:clamp((rms-floor)/(peak-floor),0,1);
+  LV+=(lv-LV)*(lv>LV?.35:.06);
+  LO+=((micPause?0:clamp(lo*1.6,0,1)*lv)-LO)*.15;HI+=((micPause?0:clamp(hi*3,0,1)*lv)-HI)*.15;
+  meterBar.style.width=(LV*100).toFixed(0)+'%';
+  // 강한 소리의 시작(팀파니·심벌·악센트) = 박
+  if(!micPause&&lv>.35&&lv>lvAvg*1.7&&now-lastOn>280){lastOn=now;beat(rand(W*.25,W*.75),H*(LO>HI?rand(.6,.8):rand(.25,.45)))}
+  lvAvg+=(lv-lvAvg)*.05;
+}
+function drawSound(){
+  if(!micOn||LV<.02)return;
+  ctx.globalCompositeOperation='lighter';
+  if(LO>.03)glow(W/2,H*1.05,W*(.35+LO*.5),'hsla(25,90%,55%,A)',LO*.35);           // 낮은 소리: 아래 물결
+  if(HI>.03&&Math.random()<HI*3)for(let i=0;i<1+HI*6;i++)add({x:rand(0,W),y:rand(0,H*.45),vx:rand(-15,15),vy:rand(-10,10),life:rand(.5,1.2),size:rand(1,2.5),hue:rand(40,60),lit:85,shrink:1}); // 높은 소리: 위 반짝임
+  ctx.globalCompositeOperation='source-over';
+}
+document.getElementById('btnMic').addEventListener('click',startMic);
+
 let lastT=performance.now();
 function frame(now){const dt=Math.min(.05,Math.max(.001,(now-lastT)/1000));lastT=now;t+=dt;
-  detect(now);updHands(dt,now);const hi=drawImg(dt);scenes[scene].bg(dt,hi);drawP(dt);requestAnimationFrame(frame)}
+  detect(now);listen(dt,now);updHands(dt,now);drawImg(dt);scenes[scene].bg(dt);drawSound();drawP(dt);requestAnimationFrame(frame)}
 resize();requestAnimationFrame(frame);
 }
 </script>
