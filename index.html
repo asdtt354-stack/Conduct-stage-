@@ -153,11 +153,10 @@ const scenes=[
 { // 2. Gabriel's Oboe — 물빛과 황금빛
   bg(){
     ctx.fillStyle='rgba(3,16,22,.25)';ctx.fillRect(0,0,W,H);
-    if(rainMode||!IMGS[1].length||!IMGUSE[1]){ // 비만 내리는 순간
+    if(rainMode||gabSlot===0||gabSlot===-2){ // 비만 내리는 순간 + 첫 번째 그림(폭포)
       const n=1.5+E*4;
       for(let i=0;i<n;i++)if(Math.random()<n/Math.ceil(n))add({kind:'streak',x:rand(0,W),y:-20,vx:rand(-6,6),vy:rand(220,420),life:H/240,size:rand(.4,1.1),hue:rand(185,200),sat:35,lit:rand(50,68)});
-    }else{ // 배경이 보일 때: 가는 비 + 금빛 물안개
-      if(Math.random()<.2+E*.4)add({kind:'streak',x:rand(0,W),y:-20,vx:rand(-4,4),vy:rand(170,280),life:H/190,size:rand(.4,.9),hue:rand(180,200),sat:35,lit:rand(50,65)});
+    }else{ // 두 번째·세 번째 그림: 비 없이 금빛 물안개만
       if(Math.random()<.35+E*1.1)add({x:rand(0,W),y:rand(H*.35,H),vx:rand(-8,8),vy:rand(-26,-8),life:rand(3,6),size:rand(1,2.3),hue:rand(38,50),lit:70,shrink:1});
     }
     ctx.globalCompositeOperation='lighter';
@@ -267,19 +266,19 @@ document.addEventListener('fullscreenchange',()=>document.body.classList.toggle(
 addEventListener('resize',resize);
 
 /* ---------- 배경 이미지 (images/1-1.jpg …) ---------- */
-const IMGS=[[],[],[],[]];let IMGUSE=[true,true,true,true],rainMode=false,rainKey=false,imgVis=1,imgOn=true,imgIdx=0,imgT=0,imgFade=1;
+const IMGS=[[],[],[],[]];let gabSlot=-2,IMGUSE=[true,true,true,true],rainMode=false,rainKey=false,imgVis=1,imgOn=true,imgIdx=0,imgT=0,imgFade=1;
 let IMGPOW=[1.2,1.9,1.5,2];try{const v=JSON.parse(localStorage.getItem('imgpow'));if(Array.isArray(v)&&v.length===4)IMGPOW=v}catch(e){}
 for(let si=0;si<4;si++)for(let k=1;k<=3;k++){
-  const tryExt=(exts)=>{if(!exts.length)return;const im=new Image();im.onload=()=>{IMGS[si].push(im)};im.onerror=()=>tryExt(exts.slice(1));im.src=`images/${si+1}-${k}.${exts[0]}`};
+  const tryExt=(exts)=>{if(!exts.length)return;const im=new Image();im.onload=()=>{IMGS[si][k-1]=im};im.onerror=()=>tryExt(exts.slice(1));im.src=`images/${si+1}-${k}.${exts[0]}`};
   tryExt(['jpg','png','jpeg','webp']);
 }
-function GA(){return IMGS[scene].length&&IMGUSE[scene]?(.35/Math.max(1,IMGPOW[scene])).toFixed(3):.35}
+function GA(){return IMGS[scene].filter(Boolean).length&&IMGUSE[scene]?(.35/Math.max(1,IMGPOW[scene])).toFixed(3):.35}
 function drawImg(dt){
-  const L=IMGS[scene];if(!IMGUSE[scene]||!L.length)return;
+  const L=IMGS[scene].filter(Boolean);gabSlot=-2;if(!IMGUSE[scene]||!L.length)return;
   imgT+=dt;if(imgT>22){imgT=0;imgIdx++;imgFade=0}
   imgFade=Math.min(1,imgFade+dt*.5);
   let im=L[imgIdx%L.length];
-  if(scene===1){const seq=[0,1,-1,2,-1];const sl=seq[imgIdx%seq.length];rainMode=rainKey||sl<0;if(sl>=0)im=L[sl%L.length];else im=L[(imgIdx+1)%L.length]}else rainMode=false;
+  if(scene===1){const seq=[0,1,-1,2,-1];const sl=seq[imgIdx%seq.length];gabSlot=sl;rainMode=rainKey||sl<0;if(sl>=0)im=L[sl%L.length];else im=L[(imgIdx+1)%L.length]}else rainMode=false;
   imgVis+=((rainMode?0:1)-imgVis)*Math.min(1,dt*.6);if(imgVis<.01)return;
   const z=1.06+.06*Math.sin(t*.05)+LV*.04;
   const sc=Math.max(W/im.naturalWidth,H/im.naturalHeight)*z,iw=im.naturalWidth*sc,ih=im.naturalHeight*sc;
