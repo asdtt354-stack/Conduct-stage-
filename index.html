@@ -154,8 +154,8 @@ const scenes=[
   bg(){
     ctx.fillStyle='rgba(3,16,22,.25)';ctx.fillRect(0,0,W,H);
     if(rainMode||!IMGS[1].length||!IMGUSE[1]){ // 비만 내리는 순간
-      const n=3+E*8;
-      for(let i=0;i<n;i++)add({kind:'streak',x:rand(0,W),y:-20,vx:rand(-10,10),vy:rand(260,520),life:H/280,size:rand(.6,1.8),hue:rand(180,200),sat:60,lit:rand(60,85)});
+      const n=1.5+E*4;
+      for(let i=0;i<n;i++)if(Math.random()<n/Math.ceil(n))add({kind:'streak',x:rand(0,W),y:-20,vx:rand(-6,6),vy:rand(220,420),life:H/240,size:rand(.4,1.1),hue:rand(185,200),sat:35,lit:rand(50,68)});
     }else{ // 배경이 보일 때: 가는 비 + 금빛 물안개
       if(Math.random()<.2+E*.4)add({kind:'streak',x:rand(0,W),y:-20,vx:rand(-4,4),vy:rand(170,280),life:H/190,size:rand(.4,.9),hue:rand(180,200),sat:35,lit:rand(50,65)});
       if(Math.random()<.35+E*1.1)add({x:rand(0,W),y:rand(H*.35,H),vx:rand(-8,8),vy:rand(-26,-8),life:rand(3,6),size:rand(1,2.3),hue:rand(38,50),lit:70,shrink:1});
